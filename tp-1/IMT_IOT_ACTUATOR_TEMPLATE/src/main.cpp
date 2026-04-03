@@ -210,66 +210,45 @@ bool connectWiFi()
 
 bool connectMqtt()
 {
-	if (mqttClient.connected())
-	{
-		return true;
-	}
+    if (mqttClient.connected())
+    {
+        return true;
+    }
 
 #if ENCRYPTED
-	netClient.setCACert(ROOT_CERT);
+    netClient.setCACert(ROOT_CERT);
 #endif
 
-	mqttClient.setServer(MQTT_SERVER, THINGSBOARD_PORT);
-	mqttClient.setCallback(mqttCallback);
+    // On utilise THINGSBOARD_PORT qui est déjà défini sur 8883/1883 selon l'encryption
+    mqttClient.setServer(MQTT_SERVER, THINGSBOARD_PORT);
+    mqttClient.setCallback(mqttCallback);
 
-	const String   clientId = String("actuator-") + device_id;
-	const uint32_t start	= millis();
+    const String   clientId = String("actuator-") + device_id;
+    const uint32_t start    = millis();
 
+    while (!mqttClient.connected())
+    {
+        // CORRECTION ICI : Ajout de MQTT_USER et MQTT_PASS définis dans config.h
+        if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS))
+        {
 #if SERIAL_DEBUG
-	Serial.print("Connecting to MQTT broker ");
-	Serial.print(MQTT_SERVER);
-	Serial.print(":");
-	Serial.println(THINGSBOARD_PORT);
+            Serial.println("MQTT connected");
 #endif
+            if (!mqttClient.subscribe(setTopic.c_str()))
+            {
+                return false;
+            }
+            publishState();
+            return true;
+        }
 
-	while (!mqttClient.connected())
-	{
-		if (mqttClient.connect(clientId.c_str()))
-		{
-#if SERIAL_DEBUG
-			Serial.println("MQTT connected");
-#endif
-			if (!mqttClient.subscribe(setTopic.c_str()))
-			{
-#if SERIAL_DEBUG
-				Serial.println("MQTT subscribe failed");
-#endif
-				return false;
-			}
-#if SERIAL_DEBUG
-			Serial.print("Subscribed to: ");
-			Serial.println(setTopic);
-#endif
-			publishState();
-			return true;
-		}
-
-		if ((millis() - start) > MQTT_CONNECT_TIMEOUT_MS)
-		{
-#if SERIAL_DEBUG
-			Serial.print("MQTT connection timeout, rc=");
-			Serial.println(mqttClient.state());
-#endif
-			return false;
-		}
-
-		delay(500);
-#if SERIAL_DEBUG
-		Serial.print('.');
-#endif
-	}
-
-	return true;
+        if ((millis() - start) > MQTT_CONNECT_TIMEOUT_MS)
+        {
+            return false;
+        }
+        delay(500);
+    }
+    return true;
 }
 
 }  // namespace
@@ -292,14 +271,18 @@ void setup()
 
 void loop()
 {
+    // 1. Vérifier le WiFi
     if (WiFi.status() != WL_CONNECTED) {
         connectWiFi();
     }
 
+    // 2. Vérifier MQTT
+    // On appelle simplement connectMqtt() qui gère déjà l'ID, le login et le subscribe
     if (!mqttClient.connected()) {
         connectMqtt();
     }
 
+    // 3. Maintenir la stack MQTT (écoute des messages entrants)
     mqttClient.loop();
 
     delay(10);
